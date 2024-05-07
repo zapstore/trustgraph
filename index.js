@@ -1,7 +1,8 @@
 import { CozoDb } from 'cozo-node';
 import { decode, npubEncode } from 'nostr-tools/nip19';
+import { join } from "bun:path";
 
-const db = new CozoDb('rocksdb', 'tmp/wot.db');
+const db = new CozoDb('rocksdb', join(__dirname, 'tmp', 'wot.db'));
 
 const from = decode(Bun.argv[2]).data;
 const to = decode(Bun.argv[3]).data;
