@@ -31,7 +31,7 @@ if (to) {
   const pool = new SimplePool();
   const relays = ['wss://relay.damus.io', 'wss://relay.nostr.band', 'wss://relay.primal.net'];
 
-  await processPubkeys(pool, relays, [from], false, manual !== undefined);
+  await processPubkeys(pool, relays, [from], manual !== undefined, manual !== undefined);
   console.log('ok');
   pool.close(relays);
 }
