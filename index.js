@@ -11,7 +11,7 @@ const processedPubkeys = new Set();
 
 const from = Bun.argv[2];
 const to = Bun.argv[3];
-const manual = Bun.argv[4];
+const manual = Bun.env.MANUAL;
 
 if (to) {
   const q = `
