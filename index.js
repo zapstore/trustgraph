@@ -24,7 +24,7 @@ if (to) {
   const result = await db.run(q);
   const out = JSON.stringify(result.rows.map(r => [r[0], r[1]]));
   console.log(out);
-} else {
+} else if (from) {
   // '9379fb1d523d8ce60f1d2b22bb765d18fff38ae22e1c6f3abe7badb52f2af95c', // japan
   // '005213ef01a818dac6303c3bb3e9ea68dc3e6b6f7bdf4f38bc36bfe863cb31a6', // thai
   // '726a1e261cc6474674e8285e3951b3bb139be9a773d1acf49dc868db861a1c11', // me
