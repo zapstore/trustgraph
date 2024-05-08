@@ -29,22 +29,22 @@ Bun.serve({
       const q = `
       s[from, to] := *rel{from, to}
       rank[code, score] <~ PageRank(s[from, to])
-      ?[to, direct, score] := (*rel{from: '${from}', to: '${to}'}, to = '${to}', direct = true, score = 1) or (*rel{from: '${from}', to}, *rel{from: to, to: '${to}'}, rank[to, score], direct = false), to != '${from}'
+      ?[to, score] := (*rel{from: '${from}', to: '${to}'}, to = '${from}', score = 1) or (*rel{from: '${from}', to}, *rel{from: to, to: '${to}'}, rank[to, score], to != '${from}')
       :order -score
-      :limit 4`;
+      :limit 6`;
 
       const result = await db.run(q);
-      const direct = result.rows.filter(r => r[1]).length > 0;
 
-      const hopResults = result.rows.filter(r => !r[1]);
-      const maxScore = hopResults.length > 0 ? hopResults[0][2] : undefined;
-      const hop = hopResults.reduce((acc, r) => {
+      const nonDirect = result.rows.filter(r => r[1] !== 1);
+      const maxScore = Math.max(...nonDirect.map(r => r[1]));
+
+      const obj = result.rows.reduce((acc, r) => {
         const npub = npubEncode(r[0]);
-        acc[npub] = Math.round(r[2] / maxScore * 100);
+        acc[npub] = r[1] == 1 ? null : Number(r[1] / maxScore).toFixed(4);
         return acc;
       }, {});
 
-      return new Response(JSON.stringify({ direct, hop }));
+      return new Response(JSON.stringify(obj));
     }
   },
   port: 3002
