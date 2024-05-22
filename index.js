@@ -4,7 +4,7 @@ import processPubkeys from './process';
 
 (async () => {
 
-  const URI = 'bolt://localhost:7687';
+  const URI = 'bolt://127.0.0.1:7687';
   const USER = '';
   const PASSWORD = '';
   let driver;
@@ -41,7 +41,7 @@ import processPubkeys from './process';
         const q = `
           MATCH (n:Node {id: "${from}"})-[e:FOLLOWS]-(q:Node)-[e2:FOLLOWS]->(m:Node {id: "${to}"})
           RETURN DISTINCT q.id, q.rank ORDER BY q.rank DESC LIMIT 5
-          UNION MATCH (n:Node {id: "${from}"})-[e:FOLLOWS]->(q:Node {id: "${to}"})
+          UNION MATCH (q:Node {id: "${from}"})-[e:FOLLOWS]->(m:Node {id: "${to}"})
           RETURN q.id, q.rank;`;
 
         const session = driver.session();
