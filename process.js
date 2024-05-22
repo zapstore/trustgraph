@@ -1,18 +1,16 @@
 import { SimplePool } from 'nostr-tools/pool';
 
-// '9379fb1d523d8ce60f1d2b22bb765d18fff38ae22e1c6f3abe7badb52f2af95c', // japan
-// '005213ef01a818dac6303c3bb3e9ea68dc3e6b6f7bdf4f38bc36bfe863cb31a6', // thai
-// '726a1e261cc6474674e8285e3951b3bb139be9a773d1acf49dc868db861a1c11', // me
+// 78ce6faa72264387284e647ba6938995735ec8c7d5c5a65737e55130f026307d // zapstore
+// 726a1e261cc6474674e8285e3951b3bb139be9a773d1acf49dc868db861a1c11 // franzap
+// b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450 // avi
+// 17538dc2a62769d09443f18c37cbe358fab5bbf981173542aa7c5ff171ed77c4 // elsat 
 
 const pool = new SimplePool();
 const relays = ['wss://relay.damus.io', 'wss://relay.nostr.band', 'wss://relay.primal.net'];
 
 const batchSize = 100;
 
-export default async function processPubkeys(pubkeys, recurse = true, db, processedPubkeys = []) {
-  // await db.run(`:create rel {from: String, to: String}`);
-  // await db.run(`::index create rel:idx {to, from}`);
-
+export default async function processPubkeys(pubkeys, recurse = true, session, processedPubkeys = []) {
   for (let start = 0; start < pubkeys.length; start += batchSize) {
     const end = Math.min(start + batchSize - 1, pubkeys.length - 1);
     const batchPubkeys = pubkeys.slice(start, end + 1);
@@ -42,39 +40,52 @@ export default async function processPubkeys(pubkeys, recurse = true, db, proces
       }, []);
 
       const pubkey = mostRecentEvent.pubkey;
+      const createdAt = mostRecentEvent.created_at;
 
       if (processedPubkeys.includes(pubkey)) {
         console.log('Skipping already processed', pubkey);
         continue;
       }
 
-      const q = await db.run(`?[to] := *rel{from: '${pubkey}', to}`);
-      const existing = q.rows.flat();
+      const result = await session.run(`MATCH (n:Node {id: '${pubkey}'})-[e:FOLLOWS]->(m:Node) RETURN m.id;`);
+      const existing = result.records.map(r => r.get('m.id'));
 
       const contactsToDelete = existing.filter(e => !contacts.includes(e));
       const contactsToInsert = contacts.filter(e => !existing.includes(e));
 
       let insLen = 0;
       if (contactsToInsert.length > 0) {
-        const inserted = await db.run(`
-          ?[from, to] <- [${contactsToInsert.map(c => `['${pubkey}', '${c}']`).join(', ')}]
-          :put rel {from, to}`);
-        if (inserted.rows.flat()[0] == 'OK') {
-          insLen = contactsToInsert.length;
-        } else {
-          console.error('error inserting');
+        const withIds = contactsToInsert.filter(c => c != pubkey).map(c => `{id: '${c}'}`);
+        const batchedWithIds = groupInBatches(withIds);
+
+        try {
+          for (const batch of batchedWithIds) {
+            await session.run(`
+              WITH [${batch.join(',')}] AS nodes
+              UNWIND nodes AS node
+              MERGE (a:Node {id: '${pubkey}', ts: ${createdAt}}) MERGE (b:Node {id: node.id}) CREATE (a)-[:FOLLOWS]->(b);`);
+            insLen += batch.length;
+          }
+        } catch (e) {
+          console.error('error inserting', e);
         }
       }
 
       let delLen = 0;
       if (contactsToDelete.length > 0) {
-        const deleted = await db.run(`
-          ?[from, to] <- [${contactsToDelete.map(c => `['${pubkey}', '${c}']`).join(', ')}]
-          :rm rel {from, to}`);
-        if (deleted.rows.flat()[0] == 'OK') {
-          delLen = contactsToDelete.length;
-        } else {
-          console.error('error deleting');
+        const withIds = contactsToDelete.filter(c => c != pubkey).map(c => `{id: '${c}'}`);
+        const batchedWithIds = groupInBatches(withIds);
+
+        try {
+          for (const batch of batchedWithIds) {
+            await session.run(`
+              WITH [${withIds}] AS nodes
+              UNWIND nodes AS node
+              MATCH (n:Node {id: node.id}) DETACH DELETE n;`);
+            delLen += batch.length;
+          }
+        } catch (e) {
+          console.error('error deleting', e);
         }
       }
 
@@ -84,14 +95,21 @@ export default async function processPubkeys(pubkeys, recurse = true, db, proces
       if (recurse) {
         const unprocessedContacts = contacts.filter(c => !processedPubkeys.includes(c));
         console.log('About to process', unprocessedContacts.length, contacts.length);
-        await processPubkeys(unprocessedContacts, false, db, processedPubkeys);
+        await processPubkeys(unprocessedContacts, false, session, processedPubkeys);
+        console.log('done!');
+        session.close();
       }
     }
   }
 }
 
-const groupBy = (key) => (array) => array.reduce((objectsByKeyValue, obj) => {
-  const value = obj[key];
-  objectsByKeyValue[value] = (objectsByKeyValue[value] || []).concat(obj);
-  return objectsByKeyValue;
-}, {});
+function groupInBatches(array, batchSize = 150) {
+  return array.reduce((batches, item, index) => {
+    const batchIndex = Math.floor(index / batchSize);
+    if (!batches[batchIndex]) {
+      batches[batchIndex] = [];
+    }
+    batches[batchIndex].push(item);
+    return batches;
+  }, []);
+}

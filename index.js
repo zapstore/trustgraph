@@ -1,51 +1,58 @@
-import { CozoDb } from 'cozo-node';
-import { join } from 'bun:path';
+import neo4j from 'neo4j-driver';
 import { decode, npubEncode } from 'nostr-tools/nip19';
 import processPubkeys from './process';
 
-const db = new CozoDb('rocksdb', join(__dirname, 'trust.db'));
+(async () => {
 
-Bun.serve({
-  async fetch(req) {
-    let from;
-    let to;
+  const URI = 'bolt://localhost:7687';
+  const USER = '';
+  const PASSWORD = '';
+  let driver;
 
-    try {
-      const parts = new URL(req.url).pathname.split('/');
-      from = parts[1] && decode(parts[1]).data;
-      to = parts[2] && (parts[2] == 'r' ? 'r' : decode(parts[2]).data);
-    } catch (e) {
-      return new Response(`Bad input`, { status: 400 });
-    }
+  try {
+    driver = neo4j.driver(URI, neo4j.auth.basic(USER, PASSWORD));
+  } catch (e) {
+    console.log(e);
+    process.exit(1);
+  }
 
-    if (!from) {
-      return new Response(`Bad input`, { status: 400 });
-    }
+  Bun.serve({
+    async fetch(req) {
+      let from;
+      let to;
 
-    if (!to || to == 'r') {
-      await processPubkeys([from], to == 'r', db);
-      return Response(JSON.stringify({ ok: true }));
-    } else {
-      const q = `
-      s[from, to] := *rel{from, to}
-      rank[code, score] <~ PageRank(s[from, to])
-      ?[to, score] := (*rel{from: '${from}', to: '${to}'}, to = '${from}', score = 1) or (*rel{from: '${from}', to}, *rel{from: to, to: '${to}'}, rank[to, score], to != '${from}')
-      :order -score
-      :limit 6`;
+      try {
+        const parts = new URL(req.url).pathname.split('/');
+        from = parts[1] && decode(parts[1]).data;
+        to = parts[2] && (parts[2] == 'r' ? 'r' : decode(parts[2]).data);
+      } catch (e) {
+        return new Response(`Bad input: ${e}`, { status: 400 });
+      }
 
-      const result = await db.run(q);
+      if (!from) {
+        return new Response(`Bad input: Missing from`, { status: 400 });
+      }
 
-      const nonDirect = result.rows.filter(r => r[1] !== 1);
-      const maxScore = Math.max(...nonDirect.map(r => r[1]));
+      if (!to || to == 'r') {
+        await processPubkeys([from], to == 'r', driver.session());
+        return Response(JSON.stringify({ ok: true }));
+      } else {
 
-      const obj = result.rows.reduce((acc, r) => {
-        const npub = npubEncode(r[0]);
-        acc[npub] = r[1] == 1 ? null : Number(r[1] / maxScore).toFixed(4);
-        return acc;
-      }, {});
+        const q = `
+          MATCH (n:Node {id: "${from}"})-[e:FOLLOWS]->(q:Node)-[e2:FOLLOWS]->(m:Node {id: "${to}"})
+          RETURN DISTINCT q.id, q.rank ORDER BY q.rank DESC LIMIT 5
+          UNION MATCH (n:Node {id: "${from}"})-[e:FOLLOWS]->(q:Node {id: "${to}"})
+          RETURN q.id, q.rank;`;
 
-      return new Response(JSON.stringify(obj));
-    }
-  },
-  port: 3002
-});
+        const session = driver.session();
+        const result = await session.run(q);
+        session.close();
+        return new Response(JSON.stringify(result.records.map(r => {
+          const npub = npubEncode(r.get('q.id'));
+          return [npub, r.get('q.rank')];
+        })));
+      }
+    },
+    port: 3002
+  });
+})();

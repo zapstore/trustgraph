@@ -9,7 +9,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "cozo-node": "^0.7.6",
+    "neo4j-driver": "^5.20.0",
     "nostr-tools": "^2.3.2"
   },
   "trustedDependencies": [
