@@ -39,7 +39,7 @@ import processPubkeys from './process';
       } else {
 
         const q = `
-          MATCH (n:Node {id: "${from}"})-[e:FOLLOWS]->(q:Node)-[e2:FOLLOWS]->(m:Node {id: "${to}"})
+          MATCH (n:Node {id: "${from}"})-[e:FOLLOWS]-(q:Node)-[e2:FOLLOWS]->(m:Node {id: "${to}"})
           RETURN DISTINCT q.id, q.rank ORDER BY q.rank DESC LIMIT 5
           UNION MATCH (n:Node {id: "${from}"})-[e:FOLLOWS]->(q:Node {id: "${to}"})
           RETURN q.id, q.rank;`;
@@ -47,10 +47,14 @@ import processPubkeys from './process';
         const session = driver.session();
         const result = await session.run(q);
         session.close();
-        return new Response(JSON.stringify(result.records.map(r => {
+
+        const obj = result.records.reduce((acc, r) => {
           const npub = npubEncode(r.get('q.id'));
-          return [npub, r.get('q.rank')];
-        })));
+          acc[npub] = Number(r.get('q.rank')).toFixed(8);
+          return acc;
+        }, {});
+
+        return new Response(JSON.stringify(obj));
       }
     },
     port: 3002

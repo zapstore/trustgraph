@@ -55,6 +55,7 @@ export default async function processPubkeys(pubkeys, recurse = true, session, p
 
       let insLen = 0;
       if (contactsToInsert.length > 0) {
+        // exclude self-following
         const withIds = contactsToInsert.filter(c => c != pubkey).map(c => `{id: '${c}'}`);
         const batchedWithIds = groupInBatches(withIds);
 
