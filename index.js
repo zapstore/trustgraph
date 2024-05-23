@@ -33,28 +33,34 @@ import processPubkeys from './process';
         return new Response(`Bad input: Missing from`, { status: 400 });
       }
 
-      if (!to || to == 'r') {
-        await processPubkeys([from], to == 'r', driver.session());
-        return Response(JSON.stringify({ ok: true }));
-      } else {
+      const session = driver.session();
 
-        const q = `
+      try {
+        if (!to || to == 'r') {
+          await processPubkeys([from], to == 'r', session);
+          return Response(JSON.stringify({ ok: true }));
+        } else {
+          const q = `
           MATCH (n:Node {id: "${from}"})-[e:FOLLOWS]-(q:Node)-[e2:FOLLOWS]->(m:Node {id: "${to}"})
           RETURN DISTINCT q.id, q.rank ORDER BY q.rank DESC LIMIT 5
           UNION MATCH (q:Node {id: "${from}"})-[e:FOLLOWS]->(m:Node {id: "${to}"})
           RETURN q.id, q.rank;`;
 
-        const session = driver.session();
-        const result = await session.run(q);
+          const result = await session.run(q);
+
+          const obj = result.records.reduce((acc, r) => {
+            const npub = npubEncode(r.get('q.id'));
+            acc[npub] = Number(r.get('q.rank')).toFixed(8);
+            return acc;
+          }, {});
+
+          return new Response(JSON.stringify(obj));
+        }
+      } catch (e) {
+        console.log(e);
+        return new Response(`Internal server error`, { status: 500 });
+      } finally {
         session.close();
-
-        const obj = result.records.reduce((acc, r) => {
-          const npub = npubEncode(r.get('q.id'));
-          acc[npub] = Number(r.get('q.rank')).toFixed(8);
-          return acc;
-        }, {});
-
-        return new Response(JSON.stringify(obj));
       }
     },
     port: 3002

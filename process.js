@@ -97,8 +97,6 @@ export default async function processPubkeys(pubkeys, recurse = true, session, p
         const unprocessedContacts = contacts.filter(c => !processedPubkeys.includes(c));
         console.log('About to process', unprocessedContacts.length, contacts.length);
         await processPubkeys(unprocessedContacts, false, session, processedPubkeys);
-        console.log('done!');
-        session.close();
       }
     }
   }
