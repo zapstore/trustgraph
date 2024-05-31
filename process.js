@@ -15,11 +15,6 @@ export default async function processPubkeys(pubkeys, recurse = true, session, p
     const end = Math.min(start + batchSize - 1, pubkeys.length - 1);
     const batchPubkeys = pubkeys.slice(start, end + 1);
 
-    // if we've been processing, wait a bit before another request
-    if (processedPubkeys.length > 1) {
-      await Bun.sleep(8000);
-    }
-
     // const events = [{ tags: [['p', 'a'], ['p', 'b']] }];
     const events = await pool.querySync(relays, { authors: batchPubkeys, kinds: [3] });
     if (!events) {
@@ -33,7 +28,11 @@ export default async function processPubkeys(pubkeys, recurse = true, session, p
       return acc;
     }, {}));
 
+    var i = 0;
+
     for (const mostRecentEvent of mostRecentEvents) {
+      i++;
+
       const contacts = mostRecentEvent.tags.reduce((acc, tag) => {
         if (tag[0] == 'p') acc.push(tag[1]);
         return acc;
@@ -43,55 +42,73 @@ export default async function processPubkeys(pubkeys, recurse = true, session, p
       const createdAt = mostRecentEvent.created_at;
 
       if (processedPubkeys.includes(pubkey)) {
-        console.log('Skipping already processed', pubkey);
+        console.log('Skipping, already processed', pubkey);
         continue;
       }
 
-      const result = await session.run(`MATCH (n:Node {id: '${pubkey}'})-[e:FOLLOWS]->(m:Node) RETURN m.id;`);
-      const existing = result.records.map(r => r.get('m.id'));
+      const r1 = await session.run(`MATCH (n:Node {id: '${pubkey}'}) RETURN n.ts`);
+      const currentCreatedAt = r1.records.length > 0 && r1.records[0].get('n.ts')?.toInt() || 0;
 
-      const contactsToDelete = existing.filter(e => !contacts.includes(e));
-      const contactsToInsert = contacts.filter(e => !existing.includes(e));
+      if (currentCreatedAt < createdAt) {
+        // Old contact list, need to update
 
-      let insLen = 0;
-      if (contactsToInsert.length > 0) {
-        // exclude self-following
-        const withIds = contactsToInsert.filter(c => c != pubkey).map(c => `{id: '${c}'}`);
-        const batchedWithIds = groupInBatches(withIds);
+        await session.run(`MERGE (n:Node {id: '${pubkey}'}) SET n.ts = ${createdAt}`);
 
-        try {
-          for (const batch of batchedWithIds) {
-            await session.run(`
+        const r2 = await session.run(`MATCH (n:Node {id: '${pubkey}'})-[e:FOLLOWS]->(m:Node) RETURN m.id;`);
+        const existing = r2.records.map(r => r.get('m.id'));
+
+        const contactsToDelete = existing.filter(e => !contacts.includes(e));
+        const contactsToInsert = contacts.filter(e => !existing.includes(e));
+
+        let insLen = 0;
+        if (contactsToInsert.length > 0) {
+          const withIds = contactsToInsert.filter(c => c != pubkey).map(c => `{id: '${c}'}`);
+          const batchedWithIds = groupInBatches(withIds, 100);
+
+          try {
+            for (const batch of batchedWithIds) {
+              await session.run(`
               WITH [${batch.join(',')}] AS nodes
               UNWIND nodes AS node
-              MERGE (a:Node {id: '${pubkey}', ts: ${createdAt}}) MERGE (b:Node {id: node.id}) CREATE (a)-[:FOLLOWS]->(b);`);
-            insLen += batch.length;
+                MATCH (a:Node {id: '${pubkey}'})
+                MERGE (b:Node {id: node.id})
+                CREATE (a)-[:FOLLOWS]->(b);`);
+              insLen += batch.length;
+              await Bun.sleep(500);
+            }
+          } catch (e) {
+            console.error('error inserting', e);
           }
-        } catch (e) {
-          console.error('error inserting', e);
         }
-      }
 
-      let delLen = 0;
-      if (contactsToDelete.length > 0) {
-        const withIds = contactsToDelete.filter(c => c != pubkey).map(c => `{id: '${c}'}`);
-        const batchedWithIds = groupInBatches(withIds);
+        let delLen = 0;
+        if (contactsToDelete.length > 0) {
+          const withIds = contactsToDelete.map(c => `{id: '${c}'}`);
+          const batchedWithIds = groupInBatches(withIds, 20);
 
-        try {
-          for (const batch of batchedWithIds) {
-            await session.run(`
-              WITH [${withIds}] AS nodes
+          // TODO see https://memgraph.com/docs/querying/clauses/delete#how-to-lower-memory-consumption
+          try {
+            for (const batch of batchedWithIds) {
+              await session.run(`
+              WITH [${batch.join(',')}] AS nodes
               UNWIND nodes AS node
-              MATCH (n:Node {id: node.id}) DETACH DELETE n;`);
-            delLen += batch.length;
+                MATCH (n:Node {id: '${pubkey}'})-[e:FOLLOWS]->(m:Node {id: node.id}) DELETE e;`);
+              delLen += batch.length;
+              await Bun.sleep(500);
+            }
+          } catch (e) {
+            console.error('error deleting', e);
           }
-        } catch (e) {
-          console.error('error deleting', e);
         }
-      }
 
-      console.log(`[${start + 1}-${end + 1}] Processed pubkey ${pubkey} with ${contacts.length} contacts (ins: ${insLen}, del: ${delLen})`);
-      processedPubkeys.push(pubkey);
+        console.log(`[${start + i}-${end + 1}] Processed pubkey ${pubkey} with ${contacts.length} contacts (ins: ${insLen}, del: ${delLen})`);
+        processedPubkeys.push(pubkey);
+
+        // Wait a bit before another request
+        await Bun.sleep(2000);
+      } else {
+        console.log(`[${start + i}-${end + 1}] Skipping, already up to date`, pubkey);
+      }
 
       if (recurse) {
         const unprocessedContacts = contacts.filter(c => !processedPubkeys.includes(c));
@@ -102,7 +119,7 @@ export default async function processPubkeys(pubkeys, recurse = true, session, p
   }
 }
 
-function groupInBatches(array, batchSize = 150) {
+function groupInBatches(array, batchSize) {
   return array.reduce((batches, item, index) => {
     const batchIndex = Math.floor(index / batchSize);
     if (!batches[batchIndex]) {
