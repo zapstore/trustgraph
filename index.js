@@ -22,9 +22,10 @@ import processPubkeys from './process';
       let to;
 
       try {
-        const parts = new URL(req.url).pathname.split('/');
+        const url = new URL(req.url);
+        const parts = url.pathname.split('/');
         from = parts[1] && decode(parts[1]).data;
-        to = parts[2] && (parts[2] == 'r' ? 'r' : decode(parts[2]).data);
+        to = parts[2] && decode(parts[2]).data;
       } catch (e) {
         return new Response(`Bad input: ${e}`, { status: 400 });
       }
@@ -36,8 +37,8 @@ import processPubkeys from './process';
       const session = driver.session();
 
       try {
-        if (!to || to == 'r') {
-          await processPubkeys([from], to == 'r', session);
+        await processPubkeys([from], false, session);
+        if (!to) {
           return Response(JSON.stringify({ ok: true }));
         } else {
           const q = `
