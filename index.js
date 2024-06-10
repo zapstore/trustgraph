@@ -44,7 +44,7 @@ import processPubkeys from './process';
           return Response(JSON.stringify({ ok: true }));
         } else {
           const q = `
-          MATCH (n:Node {id: "${from}"})-[e:FOLLOWS]-(q:Node)-[e2:FOLLOWS]->(m:Node {id: "${to}"})
+          MATCH (n:Node {id: "${from}"})-[e:FOLLOWS]->(q:Node)-[e2:FOLLOWS]->(m:Node {id: "${to}"})
           RETURN DISTINCT q.id, q.rank ORDER BY q.rank DESC ${all ? '' : 'LIMIT 5'}
           UNION MATCH (q:Node {id: "${from}"})-[e:FOLLOWS]->(m:Node {id: "${to}"})
           RETURN q.id, q.rank;`;
