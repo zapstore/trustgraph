@@ -20,12 +20,14 @@ import processPubkeys from './process';
     async fetch(req) {
       let from;
       let to;
+      let all = false;
 
       try {
         const url = new URL(req.url);
         const parts = url.pathname.split('/');
         from = parts[1] && decode(parts[1]).data;
         to = parts[2] && decode(parts[2]).data;
+        all = url.searchParams.get('all');
       } catch (e) {
         return new Response(`Bad input: ${e}`, { status: 400 });
       }
@@ -43,7 +45,7 @@ import processPubkeys from './process';
         } else {
           const q = `
           MATCH (n:Node {id: "${from}"})-[e:FOLLOWS]-(q:Node)-[e2:FOLLOWS]->(m:Node {id: "${to}"})
-          RETURN DISTINCT q.id, q.rank ORDER BY q.rank DESC LIMIT 5
+          RETURN DISTINCT q.id, q.rank ORDER BY q.rank DESC ${all ? '' : 'LIMIT 5'}
           UNION MATCH (q:Node {id: "${from}"})-[e:FOLLOWS]->(m:Node {id: "${to}"})
           RETURN q.id, q.rank;`;
 
