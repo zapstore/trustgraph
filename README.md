@@ -1,14 +1,17 @@
-# wot-dvm
+# trustgraph
 
-A Nostr web-of-trust DVM (coming soon!) service
+Based on a graph database tracking nostr follows (and soon mutes and other). It calculates PageRank for every node in the known network.
 
-Returns people you follow that follow another npub sorted by PageRank.
+## API examples
 
-### WIP
+Get top 5 follows-who-follow sorted by PageRank
 
-Only API available: `GET /?from=npub1&to=npub2`
+ - `GET https://trustgraph.live/api/fwf/npub1/npub2`
 
-## Roadmap
+Get all follows-who-follow sorted by PageRank
 
- - Actually implement DVM
- - Add weight to PageRank
+ - `GET https://trustgraph.live/api/fwf/npub1/npub2?all=true`
+
+## License
+
+MIT
